@@ -1234,21 +1234,23 @@
   <!-- LAYAR GABUNG KODE ROOM & PENDAFTARAN MULTIPLAYER -->
   <div id="registration-overlay">
     <div class="reg-card">
-      <div class="reg-badge">🌐 Live Multiplayer &bull; Voice & Chat &bull; E-Certificate</div>
+      <div class="reg-badge">🌐 Personal &amp; Join Team &bull; Voice &amp; Chat &bull; E-Certificate</div>
       <h1 class="reg-title">Petualangan Past Tense 3D</h1>
       <p class="reg-desc">
-        Bergabunglah bersama teman sekelas! Hanya <strong>Guru dengan Token Admin</strong> yang dapat membuat atau mengubah <strong>Kode Kelas</strong>. Berpetualanglah menjawab soal <em>Past Tense</em>, mengobrol lewat suara/chat, dan raih <strong>Sertifikat Juara! 🏆</strong>
+        Pilih mode <strong>Bermain Personal</strong> untuk berlatih sendiri, atau pilih <strong>Join Team</strong> dengan memasukkan <strong>Kode Tim/Kelas</strong> yang sama agar bertemu dalam satu dunia 3D, saling berkolaborasi, dan bersaing meraih <strong>Sertifikat Juara! 🏆</strong>
       </p>
 
+      <!-- Menu Pilihan Mode Permainan: Personal vs Join Team vs Guru -->
       <div class="role-tabs">
-        <button type="button" class="role-tab-btn active" id="tab-role-student" onclick="switchLobbyRole('student')">🎒 Siswa (Gabung Kelas)</button>
-        <button type="button" class="role-tab-btn" id="tab-role-teacher" onclick="switchLobbyRole('teacher')">👨‍🏫 Guru (Buat/Ubah Kode Kelas)</button>
+        <button type="button" class="role-tab-btn" id="tab-mode-personal" onclick="switchLobbyMode('personal')">👤 Bermain Personal</button>
+        <button type="button" class="role-tab-btn active" id="tab-mode-team" onclick="switchLobbyMode('team')">🤝 Join Team (Kode Sama)</button>
+        <button type="button" class="role-tab-btn" id="tab-mode-teacher" onclick="switchLobbyMode('teacher')">👨‍🏫 Guru (Atur Kode)</button>
       </div>
 
       <!-- Panel Verifikasi Token Admin Guru -->
       <div class="admin-lock-box" id="teacher-token-box">
         <div style="font-size:12px; font-weight:800; color:#FBBF24; margin-bottom:6px;">
-          🔒 Masukkan Token Admin Guru untuk Membuka Pengaturan Kode Kelas:
+          🔒 Masukkan Token Admin Guru untuk Membuka Pengaturan Kode Tim/Kelas:
         </div>
         <div style="display:flex; gap:8px;">
           <input type="password" class="form-input" id="input-admin-token" placeholder="Masukkan Token Admin (Default: GURU123)" style="flex:1;">
@@ -1259,8 +1261,8 @@
         </div>
       </div>
 
-      <div class="players-input-grid">
-        <div class="player-input-box">
+      <div class="players-input-grid" id="lobby-inputs-grid">
+        <div class="player-input-box" id="player-name-box">
           <div class="player-input-label">
             <span>👤 Nama Lengkapmu (Untuk Sertifikat)</span>
           </div>
@@ -1269,10 +1271,10 @@
 
         <div class="player-input-box" id="room-code-box">
           <div class="player-input-label">
-            <span id="room-code-label">🔑 Masukkan Kode Kelas dari Guru</span>
+            <span id="room-code-label">🔑 Masukkan Kode Join Team / Kelas</span>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <input type="text" class="player-input-field" id="input-room-code" value="CERDAS01" maxlength="10" placeholder="Ketik Kode Kelas..." style="text-transform:uppercase; color:#FBBF24; letter-spacing:1.5px; cursor:text;" title="Masukkan Kode Kelas yang diberikan oleh Guru">
+            <input type="text" class="player-input-field" id="input-room-code" value="CERDAS01" maxlength="10" placeholder="Ketik Kode Tim..." style="text-transform:uppercase; color:#FBBF24; letter-spacing:1.5px; cursor:text;" title="Masukkan Kode yang sama dengan temanmu untuk bertemu di game yang sama">
             <button type="button" id="btn-gen-code" onclick="generateNewRoomCode()" style="display:none; background:#4F46E5; color:#fff; border:none; padding:6px 10px; border-radius:8px; font-weight:800; font-size:11px; cursor:pointer; white-space:nowrap;">🎲 Acak Kode</button>
           </div>
         </div>
@@ -1291,7 +1293,7 @@
         </div>
       </div>
 
-      <button type="button" class="primary-btn" id="btn-join-game" onclick="joinMultiplayerRoom()">🚀 Masuk ke Dunia Multiplayer Sekarang!</button>
+      <button type="button" class="primary-btn" id="btn-join-game" onclick="joinMultiplayerRoom()">🤝 Gabung Join Team &amp; Masuk Dunia 3D!</button>
     </div>
   </div>
 
@@ -2119,6 +2121,7 @@
       myColor: "#EF4444",
       myScore: 0,
       myLevel: 1,
+      playMode: "team", // 'personal' atau 'team'
       roomCode: "CERDAS01",
       role: "student",
       isTeacherVerified: false,
@@ -2148,36 +2151,60 @@
       return Math.floor(score / 50) + 1;
     }
 
-    function switchLobbyRole(role) {
-      gameState.role = role;
-      document.getElementById('tab-role-student').classList.toggle('active', role === 'student');
-      document.getElementById('tab-role-teacher').classList.toggle('active', role === 'teacher');
+    function switchLobbyMode(mode) {
+      document.getElementById('tab-mode-personal').classList.toggle('active', mode === 'personal');
+      document.getElementById('tab-mode-team').classList.toggle('active', mode === 'team');
+      document.getElementById('tab-mode-teacher').classList.toggle('active', mode === 'teacher');
+
       const tokenBox = document.getElementById('teacher-token-box');
+      const roomBox = document.getElementById('room-code-box');
+      const inputsGrid = document.getElementById('lobby-inputs-grid');
       const roomInput = document.getElementById('input-room-code');
       const label = document.getElementById('room-code-label');
       const genBtn = document.getElementById('btn-gen-code');
+      const joinBtn = document.getElementById('btn-join-game');
 
-      if (role === 'teacher') {
+      if (mode === 'personal') {
+        gameState.playMode = 'personal';
+        gameState.role = 'student';
+        tokenBox.style.display = 'none';
+        roomBox.style.display = 'none';
+        inputsGrid.style.gridTemplateColumns = '1fr';
+        joinBtn.innerText = "👤 Mulai Bermain Personal (Solo Mode)";
+      } else if (mode === 'team') {
+        gameState.playMode = 'team';
+        gameState.role = 'student';
+        tokenBox.style.display = 'none';
+        roomBox.style.display = 'block';
+        inputsGrid.style.gridTemplateColumns = window.innerWidth <= 820 ? '1fr' : '1fr 1fr';
+        roomInput.removeAttribute('readonly');
+        roomInput.style.cursor = 'text';
+        label.innerText = "🔑 Masukkan Kode Join Team / Kelas";
+        genBtn.style.display = 'none';
+        joinBtn.innerText = "🤝 Gabung Join Team & Masuk Dunia 3D!";
+      } else if (mode === 'teacher') {
+        gameState.playMode = 'team';
+        gameState.role = 'teacher';
         tokenBox.style.display = 'block';
+        roomBox.style.display = 'block';
+        inputsGrid.style.gridTemplateColumns = window.innerWidth <= 820 ? '1fr' : '1fr 1fr';
         if (gameState.isTeacherVerified) {
           roomInput.removeAttribute('readonly');
           roomInput.style.cursor = 'text';
-          label.innerText = "🔑 Buat / Ubah Kode Kelas (Akses Guru Terbuka)";
+          label.innerText = "🔑 Buat / Ubah Kode Tim (Akses Guru Terbuka)";
           genBtn.style.display = 'inline-block';
         } else {
           roomInput.setAttribute('readonly', true);
           roomInput.style.cursor = 'not-allowed';
-          label.innerText = "🔒 Kode Kelas Terkunci (Masukkan Token Admin dulu)";
+          label.innerText = "🔒 Kode Terkunci (Masukkan Token Admin dulu)";
           genBtn.style.display = 'none';
         }
-      } else {
-        tokenBox.style.display = 'none';
-        // Murid dapat langsung mengetik kode kelas yang diberikan oleh guru
-        roomInput.removeAttribute('readonly');
-        roomInput.style.cursor = 'text';
-        label.innerText = "🔑 Masukkan Kode Kelas dari Guru";
-        genBtn.style.display = 'none';
+        joinBtn.innerText = "👨‍🏫 Masuk sebagai Guru & Pantau Tim!";
       }
+    }
+
+    function switchLobbyRole(role) {
+      switchLobbyMode(role === 'teacher' ? 'teacher' : 'team');
     }
 
     function verifyTeacherTokenLobby() {
@@ -2193,7 +2220,7 @@
         roomInput.style.cursor = 'text';
         roomInput.focus();
         genBtn.style.display = 'inline-block';
-        label.innerText = "🔑 Buat / Ubah Kode Kelas (Akses Guru Terbuka)";
+        label.innerText = "🔑 Buat / Ubah Kode Tim (Akses Guru Terbuka)";
         statusMsg.style.color = "#34D399";
         statusMsg.innerHTML = "✅ <strong>Token Admin Valid!</strong> Sekarang Bapak/Ibu Guru dapat mengubah atau mengacak Kode Kelas.";
         audio.playCorrect();
@@ -2247,21 +2274,22 @@
       }
 
       gameState.isTeacherVerified = true;
-      gameState.roomCode = newCode;
-      document.getElementById('input-room-code').value = newCode;
-      document.getElementById('hud-room-code').innerText = newCode;
-      document.getElementById('chat-room-badge').innerText = newCode;
-      document.getElementById('leaderboard-room-label').innerText = newCode;
+      gameState.playMode = 'team';
+      gameState.roomCode = newCode.replace(/[^A-Z0-9]/gi, '');
+      document.getElementById('input-room-code').value = gameState.roomCode;
+      document.getElementById('hud-room-code').innerText = gameState.roomCode;
+      document.getElementById('chat-room-badge').innerText = gameState.roomCode;
+      document.getElementById('leaderboard-room-label').innerText = gameState.roomCode;
 
       if (window.publishOfficialRoomCode) {
-        window.publishOfficialRoomCode(newCode);
+        window.publishOfficialRoomCode(gameState.roomCode);
       }
       if (window.connectToCloudRoom) {
-        window.connectToCloudRoom(newCode);
+        window.connectToCloudRoom(gameState.roomCode);
       }
 
       audio.playLevelUp();
-      showToast(`✅ Kode Kelas berhasil diubah menjadi [${newCode}] untuk seluruh kelas!`, "👨‍🏫");
+      showToast(`✅ Kode Join Team berhasil diubah menjadi [${gameState.roomCode}]!`, "👨‍🏫");
       closeModal('modal-teacher');
     }
 
@@ -2280,9 +2308,23 @@
       const codeInput = rawCode.replace(/[^A-Z0-9]/gi, '') || "CERDAS01";
 
       gameState.myName = nameInput;
-      gameState.roomCode = codeInput;
       gameState.hasJoinedGame = true;
       gameState.myLevel = calcLevelFromScore(gameState.myScore);
+
+      if (gameState.playMode === 'personal') {
+        gameState.roomCode = "PERSONAL";
+        // Bersihkan pemain online jika beralih ke mode personal
+        if (window.disconnectCloudRoom) {
+          window.disconnectCloudRoom();
+        }
+        if (window.syncRemotePlayersFromCloud) {
+          window.syncRemotePlayersFromCloud({});
+        }
+        document.getElementById('chat-widget').classList.add('minimized');
+      } else {
+        gameState.roomCode = codeInput;
+        document.getElementById('chat-widget').classList.remove('minimized');
+      }
 
       // Beri sedikit jarak posisi awal acak agar karakter murid yang baru masuk tidak bertumpuk di 1 titik yang persis sama
       if (typeof partyRigs !== 'undefined' && partyRigs[0]) {
@@ -2291,7 +2333,7 @@
         partyRigs[0].group.position.set(spawnOffsetX, 0, spawnOffsetZ);
       }
 
-      if (gameState.role === 'teacher' && gameState.isTeacherVerified && window.publishOfficialRoomCode) {
+      if (gameState.playMode === 'team' && gameState.role === 'teacher' && gameState.isTeacherVerified && window.publishOfficialRoomCode) {
         window.publishOfficialRoomCode(gameState.roomCode);
       }
 
@@ -2305,26 +2347,37 @@
       }
 
       document.getElementById('registration-overlay').style.display = 'none';
-      document.getElementById('input-room-code').value = gameState.roomCode;
-      document.getElementById('hud-room-code').innerText = gameState.roomCode;
-      document.getElementById('chat-room-badge').innerText = gameState.roomCode;
-      document.getElementById('leaderboard-room-label').innerText = gameState.roomCode;
+      if (gameState.playMode === 'team') {
+        document.getElementById('input-room-code').value = gameState.roomCode;
+      }
+      document.getElementById('hud-room-code').innerText = gameState.playMode === 'personal' ? 'PERSONAL (SOLO)' : gameState.roomCode;
+      document.getElementById('chat-room-badge').innerText = gameState.playMode === 'personal' ? 'SOLO' : gameState.roomCode;
+      document.getElementById('leaderboard-room-label').innerText = gameState.playMode === 'personal' ? 'MODE PERSONAL' : gameState.roomCode;
 
       audio.playLevelUp();
       updatePartyFloatingLabels();
       saveState();
 
-      if (window.connectToCloudRoom) {
+      if (gameState.playMode === 'team' && window.connectToCloudRoom) {
         window.connectToCloudRoom(gameState.roomCode);
+        showToast(`🤝 Bergabung ke Tim [${gameState.roomCode}] sebagai ${gameState.myName}!`, "🌐");
+      } else {
+        showToast(`👤 Memulai Petualangan Personal sebagai ${gameState.myName}!`, "🚀");
       }
-
-      showToast(`Bergabung ke Kelas [${gameState.roomCode}] sebagai ${gameState.myName}!`, "🌐");
     }
 
     function openRegistrationModal() {
       document.getElementById('input-player-name').value = gameState.myName;
-      document.getElementById('input-room-code').value = gameState.roomCode;
-      switchLobbyRole(gameState.role);
+      if (gameState.roomCode && gameState.roomCode !== 'PERSONAL') {
+        document.getElementById('input-room-code').value = gameState.roomCode;
+      }
+      if (gameState.role === 'teacher') {
+        switchLobbyMode('teacher');
+      } else if (gameState.playMode === 'personal') {
+        switchLobbyMode('personal');
+      } else {
+        switchLobbyMode('team');
+      }
       document.getElementById('registration-overlay').style.display = 'flex';
     }
 
@@ -3554,12 +3607,16 @@
     }
 
     function updateHUD() {
-      document.getElementById('hud-room-code').innerText = gameState.roomCode;
+      document.getElementById('hud-room-code').innerText = gameState.playMode === 'personal' ? 'PERSONAL (SOLO)' : gameState.roomCode;
       document.getElementById('hud-my-stats').innerText = `⭐ LVL ${gameState.myLevel} • 🏆 ${gameState.myScore} Poin`;
       document.getElementById('hud-scrolls').innerText = `${gameState.scrollsFound} / ${gameState.totalScrolls}`;
 
       const sorted = getAllRoomPlayersSorted();
-      document.getElementById('hud-online-count').innerText = `🟢 ${sorted.length} Pemain`;
+      if (gameState.playMode === 'personal') {
+        document.getElementById('hud-online-count').innerText = `👤 Mode Solo`;
+      } else {
+        document.getElementById('hud-online-count').innerText = `🟢 ${sorted.length} di Tim`;
+      }
 
       const grid = document.getElementById('hud-party-grid');
       grid.innerHTML = '';
@@ -4200,7 +4257,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDocs, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     let db = null;
     let auth = null;
@@ -4222,7 +4279,7 @@
           if (roomInput && !gs.hasJoinedGame) {
             roomInput.value = newCode;
           }
-        } else if (data.type === 'PLAYER_STATE' && data.roomCode === gs.roomCode && data.player) {
+        } else if (gs.playMode === 'team' && data.type === 'PLAYER_STATE' && data.roomCode === gs.roomCode && data.player) {
           window.mergePlayerIntoRoomMap(data.player);
         }
       };
@@ -4231,11 +4288,21 @@
     let cloudPlayersCache = {};
 
     window.mergePlayerIntoRoomMap = function(playerObj) {
+      const gs = window.gameState;
+      if (!gs || gs.playMode === 'personal') return;
       if (!playerObj || !playerObj.uid) return;
       cloudPlayersCache[playerObj.uid] = playerObj;
       if (window.syncRemotePlayersFromCloud) {
         window.syncRemotePlayersFromCloud({ ...cloudPlayersCache });
       }
+    };
+
+    window.disconnectCloudRoom = function() {
+      if (unsubscribeRoom) {
+        unsubscribeRoom();
+        unsubscribeRoom = null;
+      }
+      cloudPlayersCache = {};
     };
 
     async function initMultiplayerCloud() {
@@ -4257,7 +4324,7 @@
             currentUser = user;
             if (window.gameState) {
               listenOfficialRoomConfig();
-              if (window.gameState.hasJoinedGame) {
+              if (window.gameState.hasJoinedGame && window.gameState.playMode === 'team') {
                 window.connectToCloudRoom(window.gameState.roomCode);
               }
             }
@@ -4279,7 +4346,7 @@
             const newCode = data.officialRoomCode.toUpperCase().replace(/[^A-Z0-9]/gi, '');
             const gs = window.gameState;
             const roomInput = document.getElementById('input-room-code');
-            // Hanya isi otomatis di layar awal jika siswa belum masuk ke game, agar tidak menimpa kode yang diketik manual oleh murid
+            // Hanya isi otomatis di layar awal jika siswa belum mengetik kode sendiri
             if (roomInput && gs && !gs.hasJoinedGame && document.activeElement !== roomInput) {
               roomInput.value = newCode;
               gs.roomCode = newCode;
@@ -4314,7 +4381,7 @@
     window.pushMyStateToCloud = async function(force = false) {
       const gs = window.gameState;
       const pg = window.playerGroup;
-      if (!gs || !gs.hasJoinedGame || !gs.roomCode || !pg) return;
+      if (!gs || !gs.hasJoinedGame || gs.playMode === 'personal' || !gs.roomCode || !pg) return;
 
       const cleanCode = gs.roomCode.toUpperCase().replace(/[^A-Z0-9]/gi, '') || 'CERDAS01';
       const px = Math.round(pg.position.x * 10) / 10;
@@ -4354,7 +4421,6 @@
 
       try {
         const colName = `room_${cleanCode}`;
-        // Gunakan gs.myId yang unik per sesi murid agar tidak saling menimpa meski memakai token auth kelas yang sama
         const playerDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, gs.myId);
         await setDoc(playerDocRef, payload, { merge: true });
       } catch (e) {
@@ -4362,14 +4428,18 @@
       }
     };
 
-    window.connectToCloudRoom = function(roomCode) {
+    window.connectToCloudRoom = async function(roomCode) {
+      const gs = window.gameState;
+      if (!gs || gs.playMode === 'personal') return;
+
       const cleanCode = (roomCode || 'CERDAS01').toUpperCase().replace(/[^A-Z0-9]/gi, '');
+      gs.roomCode = cleanCode;
       cloudPlayersCache = {};
       if (window.syncRemotePlayersFromCloud) {
         window.syncRemotePlayersFromCloud({});
       }
 
-      window.pushMyStateToCloud(true);
+      await window.pushMyStateToCloud(true);
 
       if (!db || !currentUser) return;
       if (unsubscribeRoom) unsubscribeRoom();
@@ -4377,6 +4447,23 @@
       const colName = `room_${cleanCode}`;
       const roomColRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
 
+      // Tarik seluruh pemain yang sudah ada di ruangan ini secara instan
+      try {
+        const initialSnap = await getDocs(roomColRef);
+        const initialPlayers = {};
+        initialSnap.forEach((docSnap) => {
+          const d = docSnap.data();
+          if (d && d.uid) initialPlayers[d.uid] = d;
+        });
+        cloudPlayersCache = { ...cloudPlayersCache, ...initialPlayers };
+        if (window.syncRemotePlayersFromCloud) {
+          window.syncRemotePlayersFromCloud(cloudPlayersCache);
+        }
+      } catch (e) {
+        console.warn("Initial fetch room:", e);
+      }
+
+      // Dengarkan perubahan real-time dari seluruh pemain di kode tim yang sama
       unsubscribeRoom = onSnapshot(roomColRef, (snapshot) => {
         const activePlayers = {};
         snapshot.forEach((docSnap) => {
@@ -4394,12 +4481,12 @@
       });
     };
 
-    // Heartbeat berkala setiap 3 detik agar pemain baru langsung melihat semua teman di ruangan yang sama
+    // Heartbeat berkala setiap 2.5 detik agar semua anggota Join Team selalu tersinkronisasi
     setInterval(() => {
-      if (window.gameState && window.gameState.hasJoinedGame && window.pushMyStateToCloud) {
+      if (window.gameState && window.gameState.hasJoinedGame && window.gameState.playMode === 'team' && window.pushMyStateToCloud) {
         window.pushMyStateToCloud(true);
       }
-    }, 3000);
+    }, 2500);
 
     initMultiplayerCloud();
   </script>
