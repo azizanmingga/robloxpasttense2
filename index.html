@@ -13,6 +13,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- jsPDF CDN untuk Download Sertifikat PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- PeerJS & MQTT.js untuk Sinkronisasi Multiplayer Real-Time Lintas Perangkat (HP/IFP/Laptop) -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
 
   <style>
     :root {
@@ -1315,9 +1318,12 @@
           <span>🌐 Kode Kelas: <strong id="hud-room-code" style="color:#FDE68A; letter-spacing:1px;">CERDAS01</strong></span>
           <span id="hud-online-count" style="font-size:11px; background:rgba(16,185,129,0.3); padding:2px 8px; border-radius:8px; border:1px solid #34D399;">🟢 1 Online</span>
         </div>
-        <div style="font-size:11px; color:#A5B4FC; font-weight:800; display:flex; justify-content:space-between;">
+        <div style="font-size:11px; color:#A5B4FC; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
           <span id="hud-my-stats">⭐ LVL 1 &bull; 0 Poin</span>
-          <span style="color:#FBBF24; cursor:pointer;" onclick="openLeaderboardModal()">Klaim Sertifikat ➔</span>
+          <span id="hud-net-status" style="font-size:10px; color:#34D399;">📡 Live Sync Aktif</span>
+        </div>
+        <div style="font-size:10px; color:#94a3b8; margin-top:-2px;">
+          💡 <em>Klik nama teman di bawah untuk menghampiri posisinya:</em>
         </div>
         <div class="party-grid" id="hud-party-grid">
           <!-- Daftar pemain online dirender real-time -->
@@ -2759,40 +2765,52 @@
     /* =====================================================================
        5. KARAKTER PEMAIN LOKAL & PEMAIN MULTIPLAYER ONLINE 3D
        ===================================================================== */
-    function createNameplateCanvas(nameText, levelNum, scoreNum, borderColor, speechBubbleText = "") {
+    function createNameplateCanvas(nameText, levelNum, scoreNum, borderColor, speechBubbleText = "", isChampion = false) {
       const c = document.createElement('canvas');
-      c.width = 360;
-      c.height = 120;
+      c.width = 400;
+      c.height = 145;
       const ctx = c.getContext('2d');
 
       if (speechBubbleText) {
-        ctx.fillStyle = 'rgba(16, 185, 129, 0.95)';
-        ctx.roundRect(10, 4, 340, 42, 14);
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.96)';
+        ctx.roundRect(14, 4, 372, 42, 14);
         ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#A7F3D0';
+        ctx.stroke();
+
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 19px Nunito, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const shortSpeech = speechBubbleText.length > 26 ? speechBubbleText.substring(0, 26) + "..." : speechBubbleText;
-        ctx.fillText(`🎙️ "${shortSpeech}"`, 180, 25);
+        const shortSpeech = speechBubbleText.length > 28 ? speechBubbleText.substring(0, 28) + "..." : speechBubbleText;
+        ctx.fillText(`🎙️ "${shortSpeech}"`, 200, 25);
       }
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.roundRect(20, 52, 320, 62, 16);
+      // Latar Kartu Nama, Level & Poin di Atas Kepala
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.roundRect(20, 52, 360, 82, 18);
       ctx.fill();
       ctx.lineWidth = 5;
-      ctx.strokeStyle = borderColor || '#38BDF8';
+      ctx.strokeStyle = isChampion ? '#FBBF24' : (borderColor || '#38BDF8');
       ctx.stroke();
 
+      // Nama Pemain & Mahkota Juara
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = '900 22px Nunito, sans-serif';
+      ctx.font = '900 23px Nunito, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(nameText, 180, 72);
+      const displayTitle = isChampion ? `👑 ${nameText}` : nameText;
+      ctx.fillText(displayTitle, 200, 76);
 
-      ctx.fillStyle = '#FBBF24';
-      ctx.font = '800 18px Nunito, sans-serif';
-      ctx.fillText(`⭐ LVL ${levelNum}  •  🏆 ${scoreNum} Poin`, 180, 98);
+      // Pill Badge Level & Poin
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+      ctx.roundRect(44, 96, 312, 28, 10);
+      ctx.fill();
+
+      ctx.fillStyle = '#FDE047';
+      ctx.font = '900 18px Nunito, sans-serif';
+      ctx.fillText(`⭐ LEVEL ${levelNum}   •   🏆 ${scoreNum} POIN`, 200, 111);
 
       return new THREE.CanvasTexture(c);
     }
@@ -2841,10 +2859,20 @@
       const accGroup = new THREE.Group();
       group.add(accGroup);
 
-      const npTex = createNameplateCanvas(nameText, levelNum, scoreNum, badgeColorStr, "");
+      // Ring cahaya di bawah kaki karakter agar mudah terlihat dari kejauhan
+      const footRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.65, 0.88, 24),
+        new THREE.MeshBasicMaterial({ color: shirtColorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.75 })
+      );
+      footRing.rotation.x = -Math.PI / 2;
+      footRing.position.y = 0.05;
+      group.add(footRing);
+
+      const npTex = createNameplateCanvas(nameText, levelNum, scoreNum, badgeColorStr, "", false);
       const npMat = new THREE.MeshBasicMaterial({ map: npTex, transparent: true, depthTest: false });
-      const npMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 1.05), npMat);
-      npMesh.position.y = 3.25;
+      const npMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 1.28), npMat);
+      npMesh.position.y = 3.35;
+      npMesh.renderOrder = 999;
       group.add(npMesh);
 
       return {
@@ -2855,6 +2883,7 @@
         leftArm,
         rightArm,
         accGroup,
+        footRing,
         npMesh,
         targetPos: new THREE.Vector3(),
         targetRotY: 0,
@@ -2876,16 +2905,20 @@
     function updatePartyFloatingLabels() {
       const rig = partyRigs[0];
       const activeSpeech = (Date.now() - gameState.speechTimestamp < 6000) ? gameState.speechText : "";
+      const sorted = typeof getAllRoomPlayersSorted === 'function' ? getAllRoomPlayersSorted() : [];
+      const isChamp = sorted.length > 0 && sorted[0].uid === gameState.myId && gameState.myScore > 0;
       const newTex = createNameplateCanvas(
         gameState.myName,
         gameState.myLevel,
         gameState.myScore,
         gameState.myColor,
-        activeSpeech
+        activeSpeech,
+        isChamp
       );
       if (rig.npMesh.material.map) rig.npMesh.material.map.dispose();
       rig.npMesh.material.map = newTex;
       rig.npMesh.material.needsUpdate = true;
+      if (rig.footRing) rig.footRing.material.color.setStyle(gameState.myColor);
     }
 
     // Presets Seragam
@@ -3615,22 +3648,33 @@
       if (gameState.playMode === 'personal') {
         document.getElementById('hud-online-count').innerText = `👤 Mode Solo`;
       } else {
-        document.getElementById('hud-online-count').innerText = `🟢 ${sorted.length} di Tim`;
+        document.getElementById('hud-online-count').innerText = `🟢 ${sorted.length} Online`;
       }
 
       const grid = document.getElementById('hud-party-grid');
       grid.innerHTML = '';
-      sorted.slice(0, 6).forEach((p, idx) => {
+      sorted.slice(0, 8).forEach((p, idx) => {
         const isMe = p.uid === gameState.myId;
         const card = document.createElement('div');
         card.className = `party-member-card ${idx === 0 ? 'active-turn' : ''}`;
+        card.title = isMe ? "Ini adalah karaktermu" : `Klik untuk menghampiri ${p.name}`;
         card.innerHTML = `
           <div class="member-left">
             <span class="member-avatar-dot" style="background:${p.color || '#EF4444'}"></span>
-            <span class="member-name">${idx === 0 ? '👑 ' : ''}${p.name}${isMe ? '*' : ''}</span>
+            <span class="member-name">${idx === 0 && (p.score || 0) > 0 ? '👑 ' : ''}${p.name}${isMe ? ' (Kamu)' : ''}</span>
           </div>
-          <span class="member-score">L${p.level || 1} • ${p.score || 0}</span>
+          <span class="member-score">⭐L${p.level || 1} • ${p.score || 0}</span>
         `;
+        card.onclick = () => {
+          if (!isMe && remotePlayerRigs[p.uid]) {
+            const tPos = remotePlayerRigs[p.uid].group.position;
+            playerGroup.position.set(tPos.x + 1.8, 0, tPos.z + 1.8);
+            showToast(`⚡ Menghampiri posisi ${p.name} (LVL ${p.level || 1} • ${p.score || 0} Poin)!`, "🧭");
+            if (window.pushMyStateToCloud) window.pushMyStateToCloud(true);
+          } else if (isMe) {
+            openLeaderboardModal();
+          }
+        };
         grid.appendChild(card);
       });
     }
@@ -4189,9 +4233,23 @@
       });
 
       // Buat atau perbarui rig 3D untuk setiap pemain lain di kode kelas yang sama
+      const sortedList = getAllRoomPlayersSorted();
+      const topUid = (sortedList.length > 0 && (sortedList[0].score || 0) > 0) ? sortedList[0].uid : null;
+
       Object.keys(playersDataMap).forEach(uid => {
         if (uid === gameState.myId) return;
         const pData = playersDataMap[uid];
+        // Abaikan data pemain yang sudah tidak aktif lebih dari 45 detik
+        if (pData.updatedAt && (Date.now() - pData.updatedAt > 45000)) {
+          if (remotePlayerRigs[uid]) {
+            scene.remove(remotePlayerRigs[uid].group);
+            delete remotePlayerRigs[uid];
+          }
+          delete onlinePlayersMap[uid];
+          return;
+        }
+
+        const isRemoteChamp = (uid === topUid);
 
         if (!remotePlayerRigs[uid]) {
           const colorInt = parseInt((pData.color || "#3B82F6").replace("#", "0x"), 16) || 0x3B82F6;
@@ -4207,14 +4265,17 @@
           newRig.targetPos.set(pData.x || 0, 0, pData.z || 20);
           newRig.targetRotY = pData.rotY || 0;
           newRig.lastSignature = "";
-          newRig.lastSpeechTime = 0;
+          newRig.lastSpeechTime = pData.speechTimestamp || 0;
           scene.add(newRig.group);
           remotePlayerRigs[uid] = newRig;
+          showToast(`👋 ${pData.name || 'Teman baru'} bergabung di Kelas [${gameState.roomCode}]!`, "🌐");
         } else {
           const rRig = remotePlayerRigs[uid];
           rRig.targetPos.set(pData.x || 0, 0, pData.z || 20);
           rRig.targetRotY = pData.rotY || 0;
           rRig.mats.shirt.color.setStyle(pData.color || "#3B82F6");
+          if (rRig.footRing) rRig.footRing.material.color.setStyle(pData.color || "#3B82F6");
+
           // Cek apakah ada pesan suara atau chat baru dari pemain ini
           const isSpeakingNow = (pData.speechTimestamp && (Date.now() - pData.speechTimestamp < 6500));
           const bubbleText = isSpeakingNow ? (pData.speechText || "") : "";
@@ -4225,8 +4286,8 @@
             playIncomingVoice(pData.name || "Teman", pData.speechText, false);
           }
 
-          // Update Nameplate di atas kepala hanya jika Nama, Level, Skor, atau Balon Suara berubah
-          const sig = `${pData.name}_${pData.level}_${pData.score}_${pData.color}_${bubbleText}`;
+          // Update Nameplate di atas kepala setiap kali Nama, Level, Skor, Status Juara, atau Balon Suara berubah
+          const sig = `${pData.name}_${pData.level}_${pData.score}_${pData.color}_${bubbleText}_${isRemoteChamp}`;
           if (rRig.lastSignature !== sig) {
             rRig.lastSignature = sig;
             const newTex = createNameplateCanvas(
@@ -4234,7 +4295,8 @@
               pData.level || 1,
               pData.score || 0,
               pData.color || "#3B82F6",
-              bubbleText
+              bubbleText,
+              isRemoteChamp
             );
             if (rRig.npMesh.material.map) rRig.npMesh.material.map.dispose();
             rRig.npMesh.material.map = newTex;
@@ -4243,6 +4305,7 @@
         }
       });
 
+      updatePartyFloatingLabels();
       updateHUD();
     };
 
@@ -4253,7 +4316,7 @@
     };
   </script>
 
-  <!-- MODUL SINKRONISASI MULTIPLAYER REAL-TIME (FIRESTORE) -->
+  <!-- MODUL SINKRONISASI MULTIPLAYER REAL-TIME (HYBRID: MQTT LIVE RELAY + WEBRTC PEERJS + FIRESTORE + BROADCASTCHANNEL) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -4264,9 +4327,24 @@
     let currentUser = null;
     let unsubscribeRoom = null;
     let localChannel = null;
+    let mqttClient = null;
+    let currentMqttTopic = null;
+    let peerInstance = null;
+    let hostConnections = [];
+    let clientToHostConn = null;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-    // Sinkronisasi cadangan instan antar tab/jendela jika dijalankan di perangkat yang sama
+    let cloudPlayersCache = {};
+
+    function updateNetBadge(text, color = "#34D399") {
+      const el = document.getElementById('hud-net-status');
+      if (el) {
+        el.innerText = text;
+        el.style.color = color;
+      }
+    }
+
+    // 1. Sinkronisasi Instan Antar-Tab (BroadcastChannel)
     if ('BroadcastChannel' in window) {
       localChannel = new BroadcastChannel('roblox_past_tense_multiplayer');
       localChannel.onmessage = (ev) => {
@@ -4274,23 +4352,158 @@
         const gs = window.gameState;
         if (!data || !gs) return;
         if (data.type === 'ROOM_CODE_CHANGED' && data.officialRoomCode) {
-          const newCode = data.officialRoomCode.toUpperCase();
-          const roomInput = document.getElementById('input-room-code');
-          if (roomInput && !gs.hasJoinedGame) {
-            roomInput.value = newCode;
-          }
+          applyIncomingOfficialCode(data.officialRoomCode);
         } else if (gs.playMode === 'team' && data.type === 'PLAYER_STATE' && data.roomCode === gs.roomCode && data.player) {
           window.mergePlayerIntoRoomMap(data.player);
         }
       };
     }
 
-    let cloudPlayersCache = {};
+    function applyIncomingOfficialCode(rawCode) {
+      const newCode = (rawCode || '').toUpperCase().replace(/[^A-Z0-9]/gi, '');
+      if (!newCode) return;
+      const gs = window.gameState;
+      const roomInput = document.getElementById('input-room-code');
+      if (roomInput && gs && !gs.hasJoinedGame && document.activeElement !== roomInput) {
+        roomInput.value = newCode;
+        gs.roomCode = newCode;
+      }
+    }
+
+    // 2. Sinkronisasi Lintas Perangkat Real-Time via MQTT Over WebSockets (Bekerja di HP, IFP, & Laptop berbeda jaringan)
+    function initGlobalMqttRelay() {
+      if (typeof mqtt === 'undefined') return;
+      try {
+        mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+          clientId: 'rc3d_' + Math.random().toString(16).substring(2, 10),
+          clean: true,
+          connectTimeout: 4000,
+          reconnectPeriod: 3000
+        });
+
+        mqttClient.on('connect', () => {
+          updateNetBadge("📡 Global Live Sync", "#34D399");
+          mqttClient.subscribe('roblox_cerdas_3d/school_official_code');
+          if (window.gameState && window.gameState.hasJoinedGame && window.gameState.playMode === 'team') {
+            subscribeMqttRoom(window.gameState.roomCode);
+          }
+        });
+
+        mqttClient.on('message', (topic, messageBuffer) => {
+          try {
+            const data = JSON.parse(messageBuffer.toString());
+            const gs = window.gameState;
+            if (!data || !gs) return;
+
+            if (topic === 'roblox_cerdas_3d/school_official_code' && data.officialRoomCode) {
+              applyIncomingOfficialCode(data.officialRoomCode);
+              return;
+            }
+
+            if (gs.playMode === 'team' && data.roomCode === gs.roomCode) {
+              if (data.type === 'PLAYER_STATE' && data.player) {
+                window.mergePlayerIntoRoomMap(data.player);
+              } else if (data.type === 'WHO_IS_HERE' && data.senderId !== gs.myId) {
+                // Ketika ada teman baru masuk ke Kode Kelas ini, langsung kirimkan posisi & skor kita!
+                if (window.pushMyStateToCloud) window.pushMyStateToCloud(true);
+              }
+            }
+          } catch (e) {}
+        });
+      } catch (err) {
+        console.warn("MQTT fallback:", err);
+      }
+    }
+
+    function subscribeMqttRoom(roomCode) {
+      if (!mqttClient || !mqttClient.connected) return;
+      const cleanCode = (roomCode || 'CERDAS01').toUpperCase().replace(/[^A-Z0-9]/gi, '');
+      const newTopic = `roblox_cerdas_3d/room_${cleanCode}`;
+      if (currentMqttTopic && currentMqttTopic !== newTopic) {
+        mqttClient.unsubscribe(currentMqttTopic);
+      }
+      currentMqttTopic = newTopic;
+      mqttClient.subscribe(newTopic, () => {
+        // Sapa seluruh perangkat di kode kelas yang sama agar langsung muncul
+        mqttClient.publish(newTopic, JSON.stringify({
+          type: 'WHO_IS_HERE',
+          roomCode: cleanCode,
+          senderId: window.gameState ? window.gameState.myId : ''
+        }));
+      });
+    }
+
+    // 3. Sinkronisasi WebRTC PeerJS Room Mesh (Cadangan P2P Langsung Tanpa Server)
+    function connectPeerJsRoomMesh(roomCode) {
+      if (typeof Peer === 'undefined') return;
+      const cleanCode = (roomCode || 'CERDAS01').toUpperCase().replace(/[^A-Z0-9]/gi, '');
+      const hostPeerId = `rc3d_pasttense_room_${cleanCode}`;
+
+      if (peerInstance) {
+        try { peerInstance.destroy(); } catch (e) {}
+        peerInstance = null;
+      }
+      hostConnections = [];
+      clientToHostConn = null;
+
+      try {
+        // Coba menjadi Host Koordinator untuk Kode Kelas ini terlebih dahulu
+        const candidateHost = new Peer(hostPeerId);
+
+        candidateHost.on('open', () => {
+          peerInstance = candidateHost;
+          updateNetBadge("📡 P2P Host + Cloud", "#34D399");
+          candidateHost.on('connection', (conn) => {
+            hostConnections.push(conn);
+            conn.on('open', () => {
+              // Kirim seluruh daftar pemain yang ada di ruangan kepada siswa yang baru bergabung
+              conn.send({ type: 'ROOM_SNAPSHOT', players: cloudPlayersCache });
+            });
+            conn.on('data', (msg) => {
+              if (msg && msg.type === 'PLAYER_STATE' && msg.player) {
+                window.mergePlayerIntoRoomMap(msg.player);
+                // Teruskan ke seluruh anggota lain di dalam Kode Kelas yang sama
+                hostConnections.forEach(c => {
+                  if (c !== conn && c.open) {
+                    try { c.send(msg); } catch (e) {}
+                  }
+                });
+              }
+            });
+          });
+        });
+
+        // Jika ID Host sudah dipakai (berarti Guru atau Siswa pertama sudah membuat ruangan), bergabung sebagai Client!
+        candidateHost.on('error', (err) => {
+          if (err.type === 'unavailable-id') {
+            const clientPeer = new Peer();
+            peerInstance = clientPeer;
+            clientPeer.on('open', () => {
+              const conn = clientPeer.connect(hostPeerId, { reliable: false });
+              clientToHostConn = conn;
+              conn.on('open', () => {
+                updateNetBadge("📡 Terhubung ke Kelas", "#34D399");
+                if (window.pushMyStateToCloud) window.pushMyStateToCloud(true);
+              });
+              conn.on('data', (msg) => {
+                if (!msg) return;
+                if (msg.type === 'ROOM_SNAPSHOT' && msg.players) {
+                  Object.values(msg.players).forEach(p => window.mergePlayerIntoRoomMap(p));
+                } else if (msg.type === 'PLAYER_STATE' && msg.player) {
+                  window.mergePlayerIntoRoomMap(msg.player);
+                }
+              });
+            });
+          }
+        });
+      } catch (e) {}
+    }
 
     window.mergePlayerIntoRoomMap = function(playerObj) {
       const gs = window.gameState;
       if (!gs || gs.playMode === 'personal') return;
       if (!playerObj || !playerObj.uid) return;
+      playerObj.updatedAt = Date.now();
       cloudPlayersCache[playerObj.uid] = playerObj;
       if (window.syncRemotePlayersFromCloud) {
         window.syncRemotePlayersFromCloud({ ...cloudPlayersCache });
@@ -4302,10 +4515,20 @@
         unsubscribeRoom();
         unsubscribeRoom = null;
       }
+      if (currentMqttTopic && mqttClient && mqttClient.connected) {
+        mqttClient.unsubscribe(currentMqttTopic);
+        currentMqttTopic = null;
+      }
+      if (peerInstance) {
+        try { peerInstance.destroy(); } catch (e) {}
+        peerInstance = null;
+      }
       cloudPlayersCache = {};
     };
 
+    // 4. Sinkronisasi Cloud Firestore (Apabila tersedia)
     async function initMultiplayerCloud() {
+      initGlobalMqttRelay();
       try {
         if (typeof __firebase_config === 'undefined' || !__firebase_config) return;
         const firebaseConfig = JSON.parse(__firebase_config);
@@ -4331,11 +4554,10 @@
           }
         });
       } catch (err) {
-        console.warn("Mode Multiplayer Lokal Aktif:", err);
+        console.warn("Menggunakan Jalur Sinkronisasi MQTT & WebRTC:", err);
       }
     }
 
-    // Sinkronisasi Kode Kelas Resmi yang Diatur oleh Guru
     function listenOfficialRoomConfig() {
       if (!db || !currentUser) return;
       const configDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'school_settings', 'active_room');
@@ -4343,25 +4565,22 @@
         if (snap.exists()) {
           const data = snap.data();
           if (data && data.officialRoomCode) {
-            const newCode = data.officialRoomCode.toUpperCase().replace(/[^A-Z0-9]/gi, '');
-            const gs = window.gameState;
-            const roomInput = document.getElementById('input-room-code');
-            // Hanya isi otomatis di layar awal jika siswa belum mengetik kode sendiri
-            if (roomInput && gs && !gs.hasJoinedGame && document.activeElement !== roomInput) {
-              roomInput.value = newCode;
-              gs.roomCode = newCode;
-            }
+            applyIncomingOfficialCode(data.officialRoomCode);
           }
         }
-      }, (err) => {
-        console.warn("Gagal membaca pengaturan kelas:", err);
-      });
+      }, () => {});
     }
 
     window.publishOfficialRoomCode = async function(newRoomCode) {
       const cleanCode = newRoomCode.toUpperCase().replace(/[^A-Z0-9]/gi, '');
       if (localChannel) {
         localChannel.postMessage({ type: 'ROOM_CODE_CHANGED', officialRoomCode: cleanCode });
+      }
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish('roblox_cerdas_3d/school_official_code', JSON.stringify({
+          officialRoomCode: cleanCode,
+          updatedAt: Date.now()
+        }), { retain: true });
       }
       if (!db || !currentUser) return;
       try {
@@ -4371,9 +4590,7 @@
           updatedBy: window.gameState ? window.gameState.myId : currentUser.uid,
           updatedAt: Date.now()
         }, { merge: true });
-      } catch (e) {
-        console.warn("Gagal menyimpan kode kelas baru:", e);
-      }
+      } catch (e) {}
     };
 
     let lastSentPos = { x: 999, z: 999, score: -1, speechTimestamp: 0, roomCode: "" };
@@ -4388,7 +4605,7 @@
       const pz = Math.round(pg.position.z * 10) / 10;
       const prot = Math.round(pg.rotation.y * 100) / 100;
 
-      const moved = Math.hypot(px - lastSentPos.x, pz - lastSentPos.z) > 0.3;
+      const moved = Math.hypot(px - lastSentPos.x, pz - lastSentPos.z) > 0.25;
       const scoreChanged = gs.myScore !== lastSentPos.score;
       const speechChanged = gs.speechTimestamp !== lastSentPos.speechTimestamp;
       const roomChanged = cleanCode !== lastSentPos.roomCode;
@@ -4412,20 +4629,37 @@
         updatedAt: Date.now()
       };
 
-      // Kirim via BroadcastChannel lokal
+      const packet = { type: 'PLAYER_STATE', roomCode: cleanCode, player: payload };
+
+      // 1. Kirim via BroadcastChannel lokal
       if (localChannel) {
-        localChannel.postMessage({ type: 'PLAYER_STATE', roomCode: cleanCode, player: payload });
+        localChannel.postMessage(packet);
       }
 
-      if (!db || !currentUser) return;
+      // 2. Kirim via Global MQTT Live Relay (Lintas Perangkat HP / IFP / Laptop)
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(`roblox_cerdas_3d/room_${cleanCode}`, JSON.stringify(packet));
+      }
 
+      // 3. Kirim via WebRTC PeerJS Mesh
+      if (clientToHostConn && clientToHostConn.open) {
+        try { clientToHostConn.send(packet); } catch (e) {}
+      }
+      if (hostConnections.length > 0) {
+        hostConnections.forEach(c => {
+          if (c.open) {
+            try { c.send(packet); } catch (e) {}
+          }
+        });
+      }
+
+      // 4. Simpan ke Cloud Firestore jika tersedia
+      if (!db || !currentUser) return;
       try {
         const colName = `room_${cleanCode}`;
         const playerDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, gs.myId);
         await setDoc(playerDocRef, payload, { merge: true });
-      } catch (e) {
-        // Silent retry on next tick
-      }
+      } catch (e) {}
     };
 
     window.connectToCloudRoom = async function(roomCode) {
@@ -4439,6 +4673,10 @@
         window.syncRemotePlayersFromCloud({});
       }
 
+      // Hubungkan ke MQTT Room & WebRTC Mesh
+      subscribeMqttRoom(cleanCode);
+      connectPeerJsRoomMesh(cleanCode);
+
       await window.pushMyStateToCloud(true);
 
       if (!db || !currentUser) return;
@@ -4447,46 +4685,36 @@
       const colName = `room_${cleanCode}`;
       const roomColRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
 
-      // Tarik seluruh pemain yang sudah ada di ruangan ini secara instan
       try {
         const initialSnap = await getDocs(roomColRef);
-        const initialPlayers = {};
         initialSnap.forEach((docSnap) => {
           const d = docSnap.data();
-          if (d && d.uid) initialPlayers[d.uid] = d;
+          if (d && d.uid) cloudPlayersCache[d.uid] = d;
         });
-        cloudPlayersCache = { ...cloudPlayersCache, ...initialPlayers };
         if (window.syncRemotePlayersFromCloud) {
-          window.syncRemotePlayersFromCloud(cloudPlayersCache);
+          window.syncRemotePlayersFromCloud({ ...cloudPlayersCache });
         }
-      } catch (e) {
-        console.warn("Initial fetch room:", e);
-      }
+      } catch (e) {}
 
-      // Dengarkan perubahan real-time dari seluruh pemain di kode tim yang sama
       unsubscribeRoom = onSnapshot(roomColRef, (snapshot) => {
-        const activePlayers = {};
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
           if (data && data.uid) {
-            activePlayers[data.uid] = data;
+            cloudPlayersCache[data.uid] = data;
           }
         });
-        cloudPlayersCache = activePlayers;
         if (window.syncRemotePlayersFromCloud) {
-          window.syncRemotePlayersFromCloud(activePlayers);
+          window.syncRemotePlayersFromCloud({ ...cloudPlayersCache });
         }
-      }, (error) => {
-        console.warn("Sinkronisasi ruangan:", error);
-      });
+      }, () => {});
     };
 
-    // Heartbeat berkala setiap 2.5 detik agar semua anggota Join Team selalu tersinkronisasi
+    // Heartbeat berkala setiap 2 detik agar semua perangkat selalu melihat posisi, Level, & Poin terbaru
     setInterval(() => {
       if (window.gameState && window.gameState.hasJoinedGame && window.gameState.playMode === 'team' && window.pushMyStateToCloud) {
         window.pushMyStateToCloud(true);
       }
-    }, 2500);
+    }, 2000);
 
     initMultiplayerCloud();
   </script>
