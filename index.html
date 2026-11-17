@@ -1269,10 +1269,10 @@
 
         <div class="player-input-box" id="room-code-box">
           <div class="player-input-label">
-            <span id="room-code-label">🔑 Kode Kelas Aktif (Dikunci Guru)</span>
+            <span id="room-code-label">🔑 Masukkan Kode Kelas dari Guru</span>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <input type="text" class="player-input-field" id="input-room-code" value="CERDAS01" readonly maxlength="10" style="text-transform:uppercase; color:#FBBF24; letter-spacing:1.5px; cursor:not-allowed;" title="Hanya dapat diubah oleh Guru dengan Token Admin">
+            <input type="text" class="player-input-field" id="input-room-code" value="CERDAS01" maxlength="10" placeholder="Ketik Kode Kelas..." style="text-transform:uppercase; color:#FBBF24; letter-spacing:1.5px; cursor:text;" title="Masukkan Kode Kelas yang diberikan oleh Guru">
             <button type="button" id="btn-gen-code" onclick="generateNewRoomCode()" style="display:none; background:#4F46E5; color:#fff; border:none; padding:6px 10px; border-radius:8px; font-weight:800; font-size:11px; cursor:pointer; white-space:nowrap;">🎲 Acak Kode</button>
           </div>
         </div>
@@ -2106,8 +2106,15 @@
        ===================================================================== */
     const TEACHER_ADMIN_TOKEN = "GURU123";
 
+    // Buat ID unik per tab/perangkat agar banyak murid (termasuk di jaringan/browser yang sama) tidak saling menimpa
+    let mySessionId = sessionStorage.getItem("roblox_past_tense_player_id");
+    if (!mySessionId) {
+      mySessionId = "player_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 8);
+      sessionStorage.setItem("roblox_past_tense_player_id", mySessionId);
+    }
+
     window.gameState = {
-      myId: "user_" + Math.random().toString(36).substring(2, 9),
+      myId: mySessionId,
       myName: "Petualang Cerdas",
       myColor: "#EF4444",
       myScore: 0,
@@ -2165,9 +2172,10 @@
         }
       } else {
         tokenBox.style.display = 'none';
-        roomInput.setAttribute('readonly', true);
-        roomInput.style.cursor = 'not-allowed';
-        label.innerText = "🔑 Kode Kelas Aktif (Ditentukan oleh Guru)";
+        // Murid dapat langsung mengetik kode kelas yang diberikan oleh guru
+        roomInput.removeAttribute('readonly');
+        roomInput.style.cursor = 'text';
+        label.innerText = "🔑 Masukkan Kode Kelas dari Guru";
         genBtn.style.display = 'none';
       }
     }
@@ -2268,12 +2276,20 @@
 
     function joinMultiplayerRoom() {
       const nameInput = document.getElementById('input-player-name').value.trim() || "Siswa_" + Math.floor(10 + Math.random() * 89);
-      const codeInput = (document.getElementById('input-room-code').value.trim() || gameState.roomCode || "CERDAS01").toUpperCase();
+      const rawCode = (document.getElementById('input-room-code').value.trim() || gameState.roomCode || "CERDAS01").toUpperCase();
+      const codeInput = rawCode.replace(/[^A-Z0-9]/gi, '') || "CERDAS01";
 
       gameState.myName = nameInput;
       gameState.roomCode = codeInput;
       gameState.hasJoinedGame = true;
       gameState.myLevel = calcLevelFromScore(gameState.myScore);
+
+      // Beri sedikit jarak posisi awal acak agar karakter murid yang baru masuk tidak bertumpuk di 1 titik yang persis sama
+      if (typeof partyRigs !== 'undefined' && partyRigs[0]) {
+        const spawnOffsetX = (Math.random() - 0.5) * 6;
+        const spawnOffsetZ = 18 + (Math.random() - 0.5) * 4;
+        partyRigs[0].group.position.set(spawnOffsetX, 0, spawnOffsetZ);
+      }
 
       if (gameState.role === 'teacher' && gameState.isTeacherVerified && window.publishOfficialRoomCode) {
         window.publishOfficialRoomCode(gameState.roomCode);
@@ -2289,6 +2305,7 @@
       }
 
       document.getElementById('registration-overlay').style.display = 'none';
+      document.getElementById('input-room-code').value = gameState.roomCode;
       document.getElementById('hud-room-code').innerText = gameState.roomCode;
       document.getElementById('chat-room-badge').innerText = gameState.roomCode;
       document.getElementById('leaderboard-room-label').innerText = gameState.roomCode;
@@ -4189,7 +4206,37 @@
     let auth = null;
     let currentUser = null;
     let unsubscribeRoom = null;
+    let localChannel = null;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    // Sinkronisasi cadangan instan antar tab/jendela jika dijalankan di perangkat yang sama
+    if ('BroadcastChannel' in window) {
+      localChannel = new BroadcastChannel('roblox_past_tense_multiplayer');
+      localChannel.onmessage = (ev) => {
+        const data = ev.data;
+        const gs = window.gameState;
+        if (!data || !gs) return;
+        if (data.type === 'ROOM_CODE_CHANGED' && data.officialRoomCode) {
+          const newCode = data.officialRoomCode.toUpperCase();
+          const roomInput = document.getElementById('input-room-code');
+          if (roomInput && !gs.hasJoinedGame) {
+            roomInput.value = newCode;
+          }
+        } else if (data.type === 'PLAYER_STATE' && data.roomCode === gs.roomCode && data.player) {
+          window.mergePlayerIntoRoomMap(data.player);
+        }
+      };
+    }
+
+    let cloudPlayersCache = {};
+
+    window.mergePlayerIntoRoomMap = function(playerObj) {
+      if (!playerObj || !playerObj.uid) return;
+      cloudPlayersCache[playerObj.uid] = playerObj;
+      if (window.syncRemotePlayersFromCloud) {
+        window.syncRemotePlayersFromCloud({ ...cloudPlayersCache });
+      }
+    };
 
     async function initMultiplayerCloud() {
       try {
@@ -4209,7 +4256,6 @@
           if (user) {
             currentUser = user;
             if (window.gameState) {
-              window.gameState.myId = user.uid;
               listenOfficialRoomConfig();
               if (window.gameState.hasJoinedGame) {
                 window.connectToCloudRoom(window.gameState.roomCode);
@@ -4222,7 +4268,7 @@
       }
     }
 
-    // Sinkronisasi Kode Kelas Resmi yang Diatur oleh Guru (Hanya Guru ber-Token yang bisa mengubah)
+    // Sinkronisasi Kode Kelas Resmi yang Diatur oleh Guru
     function listenOfficialRoomConfig() {
       if (!db || !currentUser) return;
       const configDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'school_settings', 'active_room');
@@ -4230,20 +4276,13 @@
         if (snap.exists()) {
           const data = snap.data();
           if (data && data.officialRoomCode) {
-            const newCode = data.officialRoomCode.toUpperCase();
+            const newCode = data.officialRoomCode.toUpperCase().replace(/[^A-Z0-9]/gi, '');
             const gs = window.gameState;
             const roomInput = document.getElementById('input-room-code');
-            if (roomInput && !gs.isTeacherVerified) {
+            // Hanya isi otomatis di layar awal jika siswa belum masuk ke game, agar tidak menimpa kode yang diketik manual oleh murid
+            if (roomInput && gs && !gs.hasJoinedGame && document.activeElement !== roomInput) {
               roomInput.value = newCode;
-            }
-            if (gs && gs.roomCode !== newCode) {
               gs.roomCode = newCode;
-              document.getElementById('hud-room-code').innerText = newCode;
-              document.getElementById('chat-room-badge').innerText = newCode;
-              document.getElementById('leaderboard-room-label').innerText = newCode;
-              if (gs.hasJoinedGame) {
-                window.connectToCloudRoom(newCode);
-              }
             }
           }
         }
@@ -4253,12 +4292,16 @@
     }
 
     window.publishOfficialRoomCode = async function(newRoomCode) {
+      const cleanCode = newRoomCode.toUpperCase().replace(/[^A-Z0-9]/gi, '');
+      if (localChannel) {
+        localChannel.postMessage({ type: 'ROOM_CODE_CHANGED', officialRoomCode: cleanCode });
+      }
       if (!db || !currentUser) return;
       try {
         const configDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'school_settings', 'active_room');
         await setDoc(configDocRef, {
-          officialRoomCode: newRoomCode.toUpperCase(),
-          updatedBy: currentUser.uid,
+          officialRoomCode: cleanCode,
+          updatedBy: window.gameState ? window.gameState.myId : currentUser.uid,
           updatedAt: Date.now()
         }, { merge: true });
       } catch (e) {
@@ -4266,65 +4309,83 @@
       }
     };
 
-    let lastSentPos = { x: 999, z: 999, score: -1, speechTimestamp: 0 };
+    let lastSentPos = { x: 999, z: 999, score: -1, speechTimestamp: 0, roomCode: "" };
 
     window.pushMyStateToCloud = async function(force = false) {
       const gs = window.gameState;
       const pg = window.playerGroup;
-      if (!db || !currentUser || !gs || !gs.roomCode || !pg) return;
+      if (!gs || !gs.hasJoinedGame || !gs.roomCode || !pg) return;
+
+      const cleanCode = gs.roomCode.toUpperCase().replace(/[^A-Z0-9]/gi, '') || 'CERDAS01';
       const px = Math.round(pg.position.x * 10) / 10;
       const pz = Math.round(pg.position.z * 10) / 10;
       const prot = Math.round(pg.rotation.y * 100) / 100;
 
-      const moved = Math.hypot(px - lastSentPos.x, pz - lastSentPos.z) > 0.35;
+      const moved = Math.hypot(px - lastSentPos.x, pz - lastSentPos.z) > 0.3;
       const scoreChanged = gs.myScore !== lastSentPos.score;
       const speechChanged = gs.speechTimestamp !== lastSentPos.speechTimestamp;
+      const roomChanged = cleanCode !== lastSentPos.roomCode;
 
-      if (!force && !moved && !scoreChanged && !speechChanged) return;
+      if (!force && !moved && !scoreChanged && !speechChanged && !roomChanged) return;
 
-      lastSentPos = { x: px, z: pz, score: gs.myScore, speechTimestamp: gs.speechTimestamp };
+      lastSentPos = { x: px, z: pz, score: gs.myScore, speechTimestamp: gs.speechTimestamp, roomCode: cleanCode };
+
+      const payload = {
+        uid: gs.myId,
+        roomCode: cleanCode,
+        name: gs.myName,
+        color: gs.myColor,
+        score: gs.myScore,
+        level: gs.myLevel,
+        x: px,
+        z: pz,
+        rotY: prot,
+        speechText: gs.speechText || "",
+        speechTimestamp: gs.speechTimestamp || 0,
+        updatedAt: Date.now()
+      };
+
+      // Kirim via BroadcastChannel lokal
+      if (localChannel) {
+        localChannel.postMessage({ type: 'PLAYER_STATE', roomCode: cleanCode, player: payload });
+      }
+
+      if (!db || !currentUser) return;
 
       try {
-        const colName = `room_${gs.roomCode.replace(/[^A-Z0-9]/gi, '')}`;
-        const playerDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, currentUser.uid);
-        await setDoc(playerDocRef, {
-          uid: currentUser.uid,
-          name: gs.myName,
-          color: gs.myColor,
-          score: gs.myScore,
-          level: gs.myLevel,
-          x: px,
-          z: pz,
-          rotY: prot,
-          speechText: gs.speechText || "",
-          speechTimestamp: gs.speechTimestamp || 0,
-          updatedAt: Date.now()
-        }, { merge: true });
+        const colName = `room_${cleanCode}`;
+        // Gunakan gs.myId yang unik per sesi murid agar tidak saling menimpa meski memakai token auth kelas yang sama
+        const playerDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, gs.myId);
+        await setDoc(playerDocRef, payload, { merge: true });
       } catch (e) {
         // Silent retry on next tick
       }
     };
 
     window.connectToCloudRoom = function(roomCode) {
-      if (!db || !currentUser) return;
-      if (unsubscribeRoom) unsubscribeRoom();
-
-      const cleanCode = roomCode.replace(/[^A-Z0-9]/gi, '');
-      const colName = `room_${cleanCode}`;
-      const roomColRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
+      const cleanCode = (roomCode || 'CERDAS01').toUpperCase().replace(/[^A-Z0-9]/gi, '');
+      cloudPlayersCache = {};
+      if (window.syncRemotePlayersFromCloud) {
+        window.syncRemotePlayersFromCloud({});
+      }
 
       window.pushMyStateToCloud(true);
 
+      if (!db || !currentUser) return;
+      if (unsubscribeRoom) unsubscribeRoom();
+
+      const colName = `room_${cleanCode}`;
+      const roomColRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
+
       unsubscribeRoom = onSnapshot(roomColRef, (snapshot) => {
         const activePlayers = {};
-        const now = Date.now();
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          // Tampilkan semua pemain yang aktif di ruangan ini
           if (data && data.uid) {
             activePlayers[data.uid] = data;
           }
         });
+        cloudPlayersCache = activePlayers;
         if (window.syncRemotePlayersFromCloud) {
           window.syncRemotePlayersFromCloud(activePlayers);
         }
@@ -4332,6 +4393,13 @@
         console.warn("Sinkronisasi ruangan:", error);
       });
     };
+
+    // Heartbeat berkala setiap 3 detik agar pemain baru langsung melihat semua teman di ruangan yang sama
+    setInterval(() => {
+      if (window.gameState && window.gameState.hasJoinedGame && window.pushMyStateToCloud) {
+        window.pushMyStateToCloud(true);
+      }
+    }, 3000);
 
     initMultiplayerCloud();
   </script>
